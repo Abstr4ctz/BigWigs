@@ -38,6 +38,7 @@ L:RegisterTranslations("enUS", function()
 		trigger_overflowingHatredCast = "Sanv Tas'dal begins to cast Overflowing Hatred",
 		bar_overflowingHatredCast = "Overflowing Hatred",
 		msg_overflowingHatred = "Overflowing Hatred casting - Hide!",
+		warning_overflowingHatred = "HIDE NOW!",
 
 		msg_phaseShiftedYou = "Phase Shift on YOU - KILL SHADES!",
 		msg_phaseShiftedOther = "Phase Shift on %s!",
@@ -154,6 +155,7 @@ function module:OverflowingHatred()
 	if self.db.profile.overflowinghatred then
 		self:Message(L["msg_overflowingHatred"], "Important", nil, "Alarm")
 		self:Bar(L["bar_overflowingHatredCast"], timer.overflowingHatredCast, icon.overflowingHatred, true, color.red)
+		self:WarningSign(icon.overflowingHatred, timer.overflowingHatredCast, true, L["warning_overflowingHatred"])
 	end
 end
 
