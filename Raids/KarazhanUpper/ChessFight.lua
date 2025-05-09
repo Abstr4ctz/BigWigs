@@ -449,7 +449,6 @@ function module:VoidZoneAlert()
 
     self:WarningSign(icon.voidzone, timer.voidzone, true, L["msg_voidzone"])
     self:TriggerEvent("BigWigs_Sound", "VoidZoneMove")
-    SendChatMessage("Void Zone On Me!", "SAY")
 end
 
 function module:ScanBishopDebuffs()
