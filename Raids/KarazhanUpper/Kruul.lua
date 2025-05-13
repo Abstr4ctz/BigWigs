@@ -95,27 +95,25 @@ L:RegisterTranslations(
             -- Mark of the Highlord - Decurse Alert Sub-feature
             decursealert_cmd = "decursealert",
             decursealert_name = "Decurse Reminder (Mage/Druid)",
-            decursealert_desc = "Shows a message and clickable bar reminding you to decurse Mark of the Highlord.", -- Updated desc
+            decursealert_desc = "Shows a message and clickable bar reminding you to decurse Mark of the Highlord.",
             bar_decurse_prefix = "CLICK ME > ",
             -- Remorseless Strikes & Debuff Feature
             remorsestrikes_cmd = "remorsestrikes",
             remorsestrikes_name = "Next Remorseless Strikes Alert",
             remorsestrikes_desc = "Shows a timer for Kruul's next Remorseless Strikes.",
-            trigger_remorselessStrikes = "Kruul's Remorseless Strikes", -- Shared trigger
+            trigger_remorselessStrikes = "Kruul's Remorseless Strikes",
             bar_nextRemorselessStrikes = "Next Remorseless Strikes",
             remorselessdebuff_cmd = "remorselessdebuff",
             remorselessdebuff_name = "Remorseless Debuff Timer (Self)",
             remorselessdebuff_desc = "Personal timer, resets on Remorseless Strikes hits/misses on YOU. Warns on expiry.",
             bar_remorselessDebuff = "Time Since Last Strike",
-            msg_tauntNow = "TAUNT NOW! (Remorseless Debuff Expired)", -- Related to Remorseless Debuff expiring
+            msg_tauntNow = "TAUNT NOW! (Remorseless Debuff Expired)",
             -- Taunt Tracking & Resist Alert Feature
             taunttracking_cmd = "taunttracking",
             taunttracking_name = "Taunt Timer Bar",
             taunttracking_desc = "Shows a timer bar when Kruul is taunted.",
             trigger_tauntGains = "^Kruul gains (.+)%.?$",
             trigger_tauntAfflicted = "^Kruul is afflicted by (.+)%.?$",
-            pattern_tauntPerformSelf = "^You perform (.+) on Kruul%.?$",
-            pattern_tauntPerformOther = "^([^%s]+) performs (.+) on Kruul%.?$",
             bar_taunt_prefix = "Taunt: ",
             tauntresistalert_cmd = "tauntresistalert",
             tauntresistalert_name = "Taunt Resist Alert",
@@ -133,8 +131,7 @@ L:RegisterTranslations(
             proximity_desc = "Show Proximity Warning Frame",
             -- Sync Messages
             sync_markofthelord = syncName.markofthelord .. "(.+)",
-            sync_markofthelordfade = syncName.markofthelordFade .. "(.+)",
-            sync_tauntApplied = syncName.tauntApplied .. "([^%s]+) ([^%s]+)"
+            sync_markofthelordfade = syncName.markofthelordFade .. "(.+)"
         }
     end
 )
@@ -154,7 +151,6 @@ local timer = {
     remorselessStrikes = 4,
     callfromnether = 25,
     remorselessDebuffDuration = 25,
-    tauntConfirmTimeout = 1.5,
     signTauntResistDuration = 2
 }
 
@@ -190,10 +186,6 @@ local tauntSpells = {
     ["Hand of Reckoning"] = {duration = 3, iconKey = "reckoningPaladin"}
 }
 
-local isWaitingForTauntAffliction = false
-local lastPotentialTaunter = nil
-local lastPotentialTauntSpell = nil
-
 local function GetBaseSpellName(capturedString)
     if not capturedString then
         return nil
@@ -221,11 +213,9 @@ function module:OnEnable()
 
     self:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_CREATURE_BUFFS", "BossBuffEvent")
     self:RegisterEvent("CHAT_MSG_SPELL_AURA_APPLIED_CREATURE", "BossBuffEvent")
-
-    self:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE", "TauntCastAttemptEvent")
-    self:RegisterEvent("CHAT_MSG_SPELL_PARTY_DAMAGE", "TauntCastAttemptEvent")
     self:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_CREATURE_DAMAGE", "BossBuffEvent")
     self:RegisterEvent("CHAT_MSG_SPELL_CREATURE_VS_CREATURE_BUFF", "BossBuffEvent")
+    
     self:RegisterEvent("CHAT_MSG_SPELL_PARTY_DAMAGE", "TauntResistEvent")
     self:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE", "TauntResistEvent")
 
@@ -237,9 +227,6 @@ function module:OnSetup()
     self.started = false
     self.enragePhase = false
     self.isInfernalTimerActive = false
-    isWaitingForTauntAffliction = false
-    lastPotentialTaunter = nil
-    lastPotentialTauntSpell = nil
     if self.db.profile.proximity then
         self:Proximity()
     end
@@ -249,9 +236,6 @@ function module:OnEngage()
     self.started = true
     self.enragePhase = false
     self.isInfernalTimerActive = false
-    isWaitingForTauntAffliction = false
-    lastPotentialTaunter = nil
-    lastPotentialTauntSpell = nil
 
     if self.db.profile.markofthelord then
         self:Bar(L["bar_nextCurses"], timer.nextCurses, icon.nextCurses)
@@ -282,10 +266,6 @@ function module:OnDisengage()
     self:CancelScheduledEvent("Kruul_RepeatingInfernalTimer")
     self:RemoveBar(L["bar_callfromnether"])
     self.isInfernalTimerActive = false
-    self:CancelScheduledEvent("Kruul_ClearPendingTaunt_Event")
-    isWaitingForTauntAffliction = false
-    lastPotentialTaunter = nil
-    lastPotentialTauntSpell = nil
 end
 
 function module:Victory()
@@ -384,25 +364,24 @@ function module:ProcessRemorselessStrikes()
 end
 
 function module:BossBuffEvent(msg)
-    if not self.started then
-        return
-    end
+    if not self.started then return end
+
+    -- Check for Enrage
     if not self.enragePhase and find(msg, L["trigger_wrathOfTheHighlord"]) then
         self.enragePhase = true
         if self.db.profile.markofthelord then
             self:Message(L["msg_wrathOfTheHighlord"], "Important", nil, "Alarm")
         end
+        -- Stop infernal timer on enrage
         if self.isInfernalTimerActive then
             self:CancelScheduledEvent("Kruul_RepeatingInfernalTimer")
             self:RemoveBar(L["bar_callfromnether"])
             self.isInfernalTimerActive = false
         end
-
-        self:ClearPendingTaunt()
-        return
     end
 
-    if self.db.profile.taunttracking and not self.enragePhase and isWaitingForTauntAffliction then
+    -- Check for Taunt Affliction/Gain
+    if self.db.profile.taunttracking then
         local capturedAfflictionSpell
         local _, _, gainSpell = find(msg, L["trigger_tauntGains"])
         if gainSpell and find(msg, "^Kruul gains") then
@@ -415,69 +394,38 @@ function module:BossBuffEvent(msg)
         end
 
         if capturedAfflictionSpell then
-            local baseAfflictionSpell = GetBaseSpellName(capturedAfflictionSpell)
-            if baseAfflictionSpell and lastPotentialTauntSpell and baseAfflictionSpell == lastPotentialTauntSpell then
-                self:CancelScheduledEvent("Kruul_ClearPendingTaunt_Event")
-                local syncData = lastPotentialTauntSpell .. " " .. lastPotentialTaunter
-                self:Sync(syncName.tauntApplied .. " " .. syncData)
-                self:ProcessTauntApplied(lastPotentialTauntSpell, lastPotentialTaunter)
-                self:ClearPendingTaunt()
+            local baseSpellName = GetBaseSpellName(capturedAfflictionSpell)
+            if baseSpellName and tauntSpells[baseSpellName] then
+                if UnitName("target") == self.translatedName then
+                    local taunterName = UnitName("targettarget")
+                    if taunterName then
+                        self:Sync(syncName.tauntApplied .. " " .. baseSpellName .. " " .. taunterName)
+                    end
+                end
+                return
             end
         end
     end
 end
 
-function module:ClearPendingTaunt()
-    self:CancelScheduledEvent("Kruul_ClearPendingTaunt_Event")
-    isWaitingForTauntAffliction = false
-    lastPotentialTaunter = nil
-    lastPotentialTauntSpell = nil
-end
-
-function module:TauntCastAttemptEvent(msg)
-    if not self.started or not self.db.profile.taunttracking or self.enragePhase or isWaitingForTauntAffliction then
-        return
-    end
-    local rawSpellName, playerName
-    local _, _, selfSpell = find(msg, L["pattern_tauntPerformSelf"])
-    if selfSpell then
-        rawSpellName = selfSpell
-        playerName = UnitName("player")
-    else
-        local _, _, otherPlayerFound, otherSpellFound = find(msg, L["pattern_tauntPerformOther"])
-        if otherPlayerFound and otherSpellFound and find(msg, " on Kruul%.?$") then
-            rawSpellName = otherSpellFound
-            playerName = otherPlayerFound
-        end
-    end
-
-    if playerName and rawSpellName then
-        local baseSpellName = GetBaseSpellName(rawSpellName)
-        if baseSpellName and tauntSpells[baseSpellName] then
-            lastPotentialTaunter = playerName
-            lastPotentialTauntSpell = baseSpellName
-            isWaitingForTauntAffliction = true
-            self:ScheduleEvent("Kruul_ClearPendingTaunt_Event", "ClearPendingTaunt", timer.tauntConfirmTimeout)
-        end
-    end
-end
-
 function module:ProcessTauntApplied(spellName, taunterName)
-    if not self.started or not self.db.profile.taunttracking or self.enragePhase then
+    if not self.started or not self.db.profile.taunttracking then
         return
     end
+
     local tauntData = tauntSpells[spellName]
     if tauntData then
         local duration = tauntData.duration
         local iconKey = tauntData.iconKey
         local actualIconPath = icon[iconKey] or icon.tauntWarrior
         local barText = L["bar_taunt_prefix"] .. taunterName .. " (" .. spellName .. ")"
+
         self:Bar(barText, duration, actualIconPath)
     end
 end
 
 function module:TauntResistEvent(msg)
-    if not self.started or not self.db.profile.tauntresistalert or self.enragePhase then
+    if not self.started or not self.db.profile.tauntresistalert then
         return
     end
     if not find(msg, "resisted by Kruul") then
@@ -517,13 +465,6 @@ function module:TauntResistEvent(msg)
 
             self:Message(message, "Attention", nil, L["sound_tauntResist"])
             self:WarningSign(actualIconPath, timer.signTauntResistDuration, true, warningSignText)
-
-            if
-                isWaitingForTauntAffliction and lastPotentialTaunter == playerName and
-                    baseSpellName == lastPotentialTauntSpell
-             then
-                self:ClearPendingTaunt()
-            end
         end
     end
 end
@@ -612,6 +553,7 @@ function module:MarkOfTheLord(player)
     end
 
     self:RemoveBar(L["bar_nextCurses"])
+    -- Mark of the Highlord timing changes during enrage
     local nextCurseTimerValue = self.enragePhase and timer.nextCursesEnraged or timer.nextCurses
     self:Bar(L["bar_nextCurses"], nextCurseTimerValue, icon.nextCurses)
 
@@ -632,20 +574,43 @@ function module:MarkOfTheLordFade(player)
     end
 end
 
-function module:BigWigs_RecvSync(sync, rest, nick)
-    if not self.started then
-        return
+function module:SetCurseMark(player)
+    local markToUse = self:GetAvailableRaidMark()
+    if markToUse then
+        self:SetRaidTargetForPlayer(player, markToUse)
     end
+end
+
+function module:RestoreMark(player)
+    self:RestorePreviousRaidTargetForPlayer(player)
+end
+
+function module:BigWigs_RecvSync(sync, rest, nick)
+    if not self.started then return end
 
     if sync == syncName.remorselessStrikes then
         self:ProcessRemorselessStrikes()
         return
     end
 
-    local _, _, tauntSpell, taunter = find(sync, L["sync_tauntApplied"])
-    if tauntSpell and taunter then
-        self:ProcessTauntApplied(tauntSpell, taunter)
-        return
+    if sync == syncName.tauntApplied then
+        local tauntSpell, taunter
+        local safeRest = rest or "" 
+
+        for knownSpell, _ in pairs(tauntSpells) do
+            local pattern = "^%s*" .. knownSpell .. "%s+(.+)$"
+            local _, _, capturedTaunter = find(safeRest, pattern)
+            if capturedTaunter then
+                tauntSpell = knownSpell
+                taunter = capturedTaunter
+                break 
+            end
+        end
+
+        if tauntSpell and taunter then
+            self:ProcessTauntApplied(tauntSpell, taunter)
+            return
+        end
     end
 
     local _, _, markedPlayer = find(sync, L["sync_markofthelord"])
@@ -661,13 +626,116 @@ function module:BigWigs_RecvSync(sync, rest, nick)
     end
 end
 
-function module:SetCurseMark(player)
-    local markToUse = self:GetAvailableRaidMark()
-    if markToUse then
-        self:SetRaidTargetForPlayer(player, markToUse)
-    end
+function module:Test()
+	self:OnSetup()
+	self:Engage()
+    local testTarget = self.translatedName
+    local player = UnitName("player")
+    local tankA = UnitName("raid1") or "TankA"
+    local tankB = UnitName("raid2") or "TankB"
+    local cursedPlayer = UnitName("raid4") or "CursedGuy"
+    local magePlayer = UnitName("raid5") or "MageDecurser"
+
+	print("------------------------------------------")
+	print("BigWigs Kruul Taunt Logic Test Started")
+	print("------------------------------------------")
+    print("Note: This test simulates COMBAT LOG messages and BigWigs SYNC messages.")
+    print("      Ensure 'Taunt Timer Bar' & 'Taunt Resist Alert' options are ON for Kruul in /bw.")
+    print("      For sync sending test, target an NPC named 'Kruul' when prompted.")
+	print("------------------------------------------")
+
+	local events = {
+        { time = 0.1, func = function() print("[Test] Initial bars for Kruul should be present.") end },
+        { time = 2, func = function()
+            print("[Test] Simulating Remorseless Strikes on player.")
+            module:RemorselessStrikeDamage_Self("Kruul's Remorseless Strikes hits You for 2000 Physical damage.")
+        end },
+        { time = 5, func = function()
+            print("[Test] Simulating Mark of the Highlord on CursedGuy.")
+            module:AfflictionEvent_MarkOfTheLord(cursedPlayer .. " is afflicted by Mark of the Highlord.")
+        end },
+
+        -- Taunt Logic - Scenario 1: TankA Taunts (Player targets Kruul)
+        { time = 10, func = function()
+            print("\n[Taunt Test 1] Scenario: Player targets "..testTarget..", TankA Taunts (basic).")
+            DEFAULT_CHAT_FRAME:AddMessage(" >>>> Test Setup: Please TARGET '"..testTarget.."' now (if not already). <<<<")
+        end },
+        { time = 10.1, func = function()
+            local msg = testTarget .. " is afflicted by Taunt."
+            print(" > Simulating Combat Log: " .. msg)
+            module:BossBuffEvent(msg) 
+            local expectedRest = "Taunt " .. tankA
+            print(" > Simulating Sync Receive: Sync='" .. syncName.tauntApplied .. "', Rest='" .. expectedRest .. "'")
+            module:BigWigs_RecvSync(syncName.tauntApplied, expectedRest, "BigWigs")
+            print(" > Expected: Bar 'Taunt: TankA (Taunt)' for 3s")
+        end },
+
+        -- Taunt Logic - Scenario 2: TankB uses Challenging Shout (Player NOT targeting Kruul)
+        { time = 14, func = function()
+            print("\n[Taunt Test 2] Scenario: Player NOT targeting "..testTarget..", TankB uses Challenging Shout (with rank).")
+            DEFAULT_CHAT_FRAME:AddMessage(" >>>> Test Setup: Please UNTARGET '"..testTarget.."' or target something else. <<<<")
+        end },
+        { time = 14.1, func = function()
+            local msg = testTarget .. " gains Challenging Shout (1)."
+            print(" > Simulating Combat Log: " .. msg)
+            module:BossBuffEvent(msg) 
+            local expectedRest = "Challenging Shout " .. tankB
+            print(" > Simulating Sync Receive: Sync='" .. syncName.tauntApplied .. "', Rest='" .. expectedRest .. "'")
+            module:BigWigs_RecvSync(syncName.tauntApplied, expectedRest, "BigWigs")
+            print(" > Expected: Bar 'Taunt: TankB (Challenging Shout)' for 6s")
+        end },
+        
+        -- Enrage
+        { time = 18, func = function()
+             print("\n[Test] Simulating Enrage.")
+             module:BossBuffEvent("Kruul gains Wrath of the Highlord.")
+             print(" > Expected: Enrage message, Infernal bar stops. Next curse bar on MotH should be 15s.")
+        end },
+        { time = 19, func = function()
+            print("[Test] Simulating Mark of the Highlord during Enrage.")
+            module:AfflictionEvent_MarkOfTheLord("You are afflicted by Mark of the Highlord.")
+            print(" > Expected: Next Curses bar for MotH should be 15s due to enrage.")
+        end },
+
+        -- Taunt Logic DURING Enrage - Scenario 3: TankA uses Hand of Reckoning
+        { time = 22, func = function()
+            print("\n[Taunt Test 3 - ENRAGED] Scenario: Player targets "..testTarget..", TankA uses Hand of Reckoning.")
+            DEFAULT_CHAT_FRAME:AddMessage(" >>>> Test Setup: Please TARGET '"..testTarget.."' now. <<<<")
+        end },
+        { time = 22.1, func = function()
+            local msg = testTarget .. " gains Hand of Reckoning (1)."
+            print(" > Simulating Combat Log (ENRAGED): " .. msg)
+            module:BossBuffEvent(msg)
+            local expectedRest = "Hand of Reckoning " .. tankA
+            print(" > Simulating Sync Receive (ENRAGED): Sync='" .. syncName.tauntApplied .. "', Rest='" .. expectedRest .. "'")
+            module:BigWigs_RecvSync(syncName.tauntApplied, expectedRest, "BigWigs")
+            print(" > Expected (ENRAGED): Bar 'Taunt: TankA (Hand of Reckoning)' for 3s")
+        end },
+
+        -- Taunt Resist DURING Enrage
+        { time = 26, func = function()
+            print("\n[Test - ENRAGED] Simulating YOUR Taunt being resisted by Kruul.")
+            module:TauntResistEvent("Your Taunt was resisted by Kruul.")
+            print(" > Expected (ENRAGED): Resist message & warning sign")
+        end },
+        
+        -- Disengage
+        { time = 30, func = function()
+            print("\nTest: Disengage.")
+            module:Disengage()
+            print("------------------------------------------")
+            print("BigWigs Kruul Taunt Logic Test Finished")
+            print("------------------------------------------")
+        end },
+	}
+
+	for i, event in ipairs(events) do
+		self:ScheduleEvent("KruulMasterTestEvent" .. i, event.func, event.time)
+	end
+
+	self:Message("Kruul Master Test started", "Positive")
+	return true
 end
 
-function module:RestoreMark(player)
-    self:RestorePreviousRaidTargetForPlayer(player)
-end
+-- Test command:
+-- /run local m=BigWigs:GetModule("Kruul"); BigWigs:SetupModule("Kruul");m:Test();

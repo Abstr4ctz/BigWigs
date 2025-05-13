@@ -66,7 +66,7 @@ L:RegisterTranslations("enUS", function()
         voidzone_name = "Void Zone Alert",
         voidzone_desc = "Warns when King casts Blunder (Void Zone)",
         trigger_voidzone = "King casts Blunder.",
-        msg_voidzone = "Void Zone MOVE!",
+        msg_voidzone = "Void Zone WATCH OUT!",
 
 		trigger_subservienceYou = "You are afflicted by Dark Subservience",
 		trigger_subservienceOther = "(.+) is afflicted by Dark Subservience",

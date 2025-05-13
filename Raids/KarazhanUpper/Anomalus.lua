@@ -55,10 +55,10 @@ L:RegisterTranslations("enUS", function()
 		trigger_arcanePrison = "(.+) is afflicted by Arcane Prison",
 		msg_arcanePrison = "Arcane Prison on %s!",
 
-		trigger_manaboundStrike = "(.+) is afflicted by Manabound Strikes %((%d+)%)",
+		trigger_manaboundStrike = "(.+) is afflicted by Manabound Strikes %((%d+)%)%.",
 		trigger_manaboundFade = "Manabound Strikes fades from (.+)",
 
-		trigger_arcaneDampening = "(.+) is afflicted by Arcane Dampening",
+		trigger_arcaneDampening = "(.+) is afflicted by Arcane Dampening %(1%)%.",
 		trigger_arcaneDampeningFade = "Arcane Dampening fades from (.+)",
 
 		bar_manaboundExpire = "Manabound stacks expire",
@@ -102,27 +102,31 @@ function module:OnEnable()
 	self:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_FRIENDLYPLAYER_DAMAGE", "AfflictionEvent")
 	self:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_PARTY_DAMAGE", "AfflictionEvent")
 	self:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE", "AfflictionEvent")
-	self:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_PARTY")
-	self:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_OTHER")
-	self:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_SELF")
+	self:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_PARTY", "AuraGoneEvent")
+	self:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_OTHER", "AuraGoneEvent")
+	self:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_SELF", "AuraGoneEvent")
+    self:RegisterEvent("CHAT_MSG_COMBAT_FRIENDLY_DEATH", "OnFriendlyDeath")
 
 	self:ThrottleSync(3, syncName.arcaneOverload)
 	self:ThrottleSync(3, syncName.arcanePrison)
 	self:ThrottleSync(3, syncName.manaboundStrike)
 	self:ThrottleSync(3, syncName.manaboundStrikeFade)
-	self:ThrottleSync(3, syncName.arcaneDampening)
-	self:ThrottleSync(3, syncName.arcaneDampeningFade)
+	self:ThrottleSync(1, syncName.arcaneDampening)
+	self:ThrottleSync(1, syncName.arcaneDampeningFade)
 
 	self:UpdateManaboundStatusFrame()
 end
 
 function module:OnSetup()
 	self.started = nil
+    dampenedPlayers = {}
+    manaboundStrikesPlayers = {}
 end
 
 function module:OnEngage()
 	arcaneOverloadCount = 1
 	manaboundStrikesPlayers = {}
+    dampenedPlayers = {}
 
 	if self.db.profile.arcaneoverload then
 		self:Bar(L["bar_arcaneOverload"], timer.arcaneOverload[arcaneOverloadCount], icon.arcaneOverload)
@@ -139,6 +143,7 @@ function module:OnDisengage()
 	if self.manaboundStatusFrame then
 		self.manaboundStatusFrame:Hide()
 	end
+    dampenedPlayers = {}
 end
 
 function module:AfflictionEvent(msg)
@@ -146,80 +151,81 @@ function module:AfflictionEvent(msg)
 	if string.find(msg, L["trigger_arcaneOverloadYou"]) then
 		self:Sync(syncName.arcaneOverload .. " " .. UnitName("player"))
 	else
-		local _, _, player = string.find(msg, L["trigger_arcaneOverloadOther"])
-		if player then
-			self:Sync(syncName.arcaneOverload .. " " .. player)
+		local _, _, playerOverload = string.find(msg, L["trigger_arcaneOverloadOther"])
+		if playerOverload then
+			self:Sync(syncName.arcaneOverload .. " " .. playerOverload)
 		end
 	end
 
 	-- Arcane Prison
-	local _, _, player = string.find(msg, L["trigger_arcanePrison"])
-	if player then
-		self:Sync(syncName.arcanePrison .. " " .. player)
+	local _, _, playerPrison = string.find(msg, L["trigger_arcanePrison"])
+	if playerPrison then
+		self:Sync(syncName.arcanePrison .. " " .. playerPrison)
 	end
 
 	-- Manabound Strikes
-	local _, _, player, count = string.find(msg, L["trigger_manaboundStrike"])
-	if player and count then
-		self:Sync(syncName.manaboundStrike .. " " .. player .. " " .. count)
+	local _, _, playerManabound, countManabound = string.find(msg, L["trigger_manaboundStrike"])
+	if playerManabound and countManabound then
+		self:Sync(syncName.manaboundStrike .. " " .. playerManabound .. " " .. countManabound)
 	end
 
-	-- Arcane Dampening
-	local _, _, player = string.find(msg, L["trigger_arcaneDampening"])
-	if player then
-		self:Sync(syncName.arcaneDampening .. " " .. player)
-	end
-end
-
-function module:CHAT_MSG_SPELL_AURA_GONE_SELF(msg)
-	local _, _, player = string.find(msg, L["trigger_manaboundFade"])
-	if player then
-		self:Sync(syncName.manaboundStrikeFade .. " " .. player)
-	end
-
-	-- Arcane Dampening faded
-	local _, _, player = string.find(msg, L["trigger_arcaneDampeningFade"])
-	if player then
-		self:Sync(syncName.arcaneDampeningFade .. " " .. player)
-	end
-
-	-- remove bar
-	self:RemoveBar(L["bar_manaboundExpire"])
-end
-
-function module:CHAT_MSG_SPELL_AURA_GONE_PARTY(msg)
-	local _, _, player = string.find(msg, L["trigger_manaboundFade"])
-	if player then
-		self:Sync(syncName.manaboundStrikeFade .. " " .. player)
-	end
-
-	-- Arcane Dampening faded
-	local _, _, player = string.find(msg, L["trigger_arcaneDampeningFade"])
-	if player then
-		self:Sync(syncName.arcaneDampeningFade .. " " .. player)
+	-- Arcane Dampening Application Check
+	local _, _, playerDampening = string.find(msg, L["trigger_arcaneDampening"])
+	if playerDampening then
+        -- Handle potential 'You' case if trigger matches self directly
+        if playerDampening == "You" then playerDampening = UnitName("player") end
+		self:Sync(syncName.arcaneDampening .. " " .. playerDampening)
 	end
 end
 
-function module:CHAT_MSG_SPELL_AURA_GONE_OTHER(msg)
-	local _, _, player = string.find(msg, L["trigger_manaboundFade"])
-	if player then
-		self:Sync(syncName.manaboundStrikeFade .. " " .. player)
-	end
+function module:AuraGoneEvent(msg)
+	local playerManaboundFade
+    if msg == "CHAT_MSG_SPELL_AURA_GONE_SELF" then
+        _, _, playerManaboundFade = string.find(msg, L["trigger_manaboundFade"])
+        if playerManaboundFade then
+             playerManaboundFade = UnitName("player")
+             self:Sync(syncName.manaboundStrikeFade .. " " .. playerManaboundFade)
+             self:RemoveBar(L["bar_manaboundExpire"])
+        end
+    else
+        _, _, playerManaboundFade = string.find(msg, L["trigger_manaboundFade"])
+        if playerManaboundFade then
+             self:Sync(syncName.manaboundStrikeFade .. " " .. playerManaboundFade)
+        end
+    end
 
-	-- Arcane Dampening faded
-	local _, _, player = string.find(msg, L["trigger_arcaneDampeningFade"])
-	if player then
-		self:Sync(syncName.arcaneDampeningFade .. " " .. player)
-	end
+	-- Arcane Dampening Fade Check
+	local playerDampeningFade
+    if msg == "CHAT_MSG_SPELL_AURA_GONE_SELF" then
+        _, _, playerDampeningFade = string.find(msg, L["trigger_arcaneDampeningFade"])
+        if playerDampeningFade then
+            playerDampeningFade = UnitName("player")
+            self:Sync(syncName.arcaneDampeningFade .. " " .. playerDampeningFade)
+        end
+    else -- Check party/other
+        _, _, playerDampeningFade = string.find(msg, L["trigger_arcaneDampeningFade"])
+        if playerDampeningFade then
+            self:Sync(syncName.arcaneDampeningFade .. " " .. playerDampeningFade)
+        end
+    end
 end
 
+
+-- Death handling for dampened players
 function module:OnFriendlyDeath(msg)
-	-- Remove raid marker when a player dies
-	local _, _, player = string.find(msg, "(.+) dies")
-	if player and self.db.profile.markdampenedplayers and dampenedPlayers[player] then
-		self:RemoveDampenedPlayerMark(player)
+	local _, _, player = string.find(msg, "(.+) dies%.?$")
+	if player then
+		-- Remove raid marker if the player was tracked as dampened
+		if dampenedPlayers[player] then
+			self:RemoveDampenedPlayerMark(player)
+		end
+        -- Also remove from Manabound tracking if they die
+		if manaboundStrikesPlayers[player] then
+			self:ManaboundStrikeFade(player)
+		end
 	end
 end
+
 
 function module:BigWigs_RecvSync(sync, rest, nick)
 	if sync == syncName.arcaneOverload and rest then
@@ -256,13 +262,35 @@ function module:ArcaneOverload(player)
 			self:Message(string.format(L["msg_arcaneOverloadOther"], player), "Important")
 		end
 
-		-- set latest bomb as skull
+		-- Logic to find and handle existing Skull mark
+		if self.db.profile.markdampenedplayers then
+			local playerWithSkull = nil
+			-- Iterate through raid members to find who currently has Skull (8)
+			for i = 1, GetNumRaidMembers() do -- Use GetNumRaidMembers for efficiency
+				local unitid = "raid" .. i
+				if UnitExists(unitid) then
+					local currentMark = GetRaidTargetIndex(unitid)
+					if currentMark == 8 then
+						playerWithSkull = UnitName(unitid)
+						break
+					end
+				end
+			end
+
+			-- If we found someone with Skull, check if they are dampened
+			if playerWithSkull and dampenedPlayers[playerWithSkull] then
+				self:RestorePreviousRaidTargetForPlayer(playerWithSkull)
+			end
+		end
+
+		-- Now, set the Skull mark on the new bomb target
 		self:SetRaidTargetForPlayer(player, 8)
 
 		self:RemoveBar(L["bar_arcaneOverload"])
 		self:Bar(L["bar_arcaneOverload"], nextTimer, icon.arcaneOverload)
 	end
 end
+
 
 function module:ArcanePrison(player)
 	if self.db.profile.arcaneprison then
@@ -304,43 +332,42 @@ end
 
 function module:ArcaneDampening(player)
 	self:MarkDampenedPlayer(player)
-
-	-- Add bar for the player with Arcane Dampening
-	if player == UnitName("player") then
-		self:Bar("Arcane Dampening - Can Soak", timer.arcaneDampening, icon.arcaneDampening)
-	end
 end
 
 function module:ArcaneDampeningFade(player)
 	self:RemoveDampenedPlayerMark(player)
-
-	-- Remove the bar if it's the player
-	if player == UnitName("player") then
-		self:RemoveBar("Arcane Dampening - Can Soak")
-	end
-end
-
-function module:OnFriendlyDeath(msg)
-	-- Remove raid marker when a player dies
-	local _, _, player = string.find(msg, "(.+) dies")
-	if player then
-		self:RemoveDampenedPlayerMark(player)
-	end
 end
 
 function module:MarkDampenedPlayer(player)
+    -- Avoid re-marking if already tracked
+	if dampenedPlayers[player] then return end
+
 	if self.db.profile.markdampenedplayers then
-		-- don't use skull mark as that is reserved for the latest Arcane Overload
+		-- don't use skull mark (8) as that is reserved for the latest Arcane Overload
 		local markToUse = self:GetAvailableRaidMark({ 8 })
 		if markToUse then
-			self:SetRaidTargetForPlayer(player, markToUse)
+			if self:SetRaidTargetForPlayer(player, markToUse) then
+				dampenedPlayers[player] = markToUse
+			end
 		end
+	end
+
+	-- Add personal bar for the player who got Dampening
+	if player == UnitName("player") then
+		self:Bar("Arcane Dampening - Can Soak", timer.arcaneDampening, icon.arcaneDampening, true, "Blue")
 	end
 end
 
 function module:RemoveDampenedPlayerMark(player)
+	if not dampenedPlayers[player] then return end
+
 	if self.db.profile.markdampenedplayers then
 		self:RestorePreviousRaidTargetForPlayer(player)
+	end
+	dampenedPlayers[player] = nil
+
+	if player == UnitName("player") then
+		self:RemoveBar("Arcane Dampening - Can Soak")
 	end
 end
 
@@ -430,37 +457,54 @@ function module:UpdateManaboundStatusFrame()
 	local lineIndex = 1
 	local now = GetTime()
 
+	-- Sort players by expiration time (soonest first) or alphabetically if times are equal
+	local sortedPlayers = {}
 	for player, data in pairs(manaboundStrikesPlayers) do
+		table.insert(sortedPlayers, { name = player, expires = data.expires, count = data.count })
+	end
+	table.sort(sortedPlayers, function(a, b)
+		if a.expires == b.expires then
+			return a.name < b.name -- Alphabetical if same expiration
+		end
+		return a.expires < b.expires -- Sort by expiration time
+	end)
+
+
+	for _, playerData in ipairs(sortedPlayers) do
 		if lineIndex <= maxManaboundPlayers then
 			-- Max maxManaboundPlayers players shown
 			local line = self.manaboundStatusFrame.lines[lineIndex]
+            local data = manaboundStrikesPlayers[playerData.name] -- Get current data
 
-			local timeLeft = math.max(0, data.expires - now)
+            if data then -- Check if player still exists in main table (could have faded)
+                local timeLeft = math.max(0, data.expires - now)
 
-			-- Set the columns in the new format
-			line.timer:SetText(string.format("%.0f", timeLeft))
-			line.player:SetText(player)
-			line.stacks:SetText(data.count)
+                -- Set the columns in the new format
+                line.timer:SetText(string.format("%.0f", timeLeft))
+                line.player:SetText(playerData.name)
+                line.stacks:SetText(data.count)
 
-			-- Color based on stack count
-			if data.count >= 8 then
-				line.stacks:SetTextColor(1, 0, 0) -- Red for high stacks
-			elseif data.count >= 5 then
-				line.stacks:SetTextColor(1, 0.5, 0) -- Orange for medium stacks
-			else
-				line.stacks:SetTextColor(1, 1, 1) -- White for low stacks
-			end
+                -- Color based on stack count
+                if data.count >= 8 then
+                    line.stacks:SetTextColor(1, 0, 0) -- Red for high stacks
+                elseif data.count >= 5 then
+                    line.stacks:SetTextColor(1, 0.5, 0) -- Orange for medium stacks
+                else
+                    line.stacks:SetTextColor(1, 1, 1) -- White for low stacks
+                end
 
-			-- Color timer based on time remaining
-			if timeLeft < 5 then
-				line.timer:SetTextColor(0, 1, 0) -- Green for about to expire
-			else
-				line.timer:SetTextColor(1, 1, 1) -- White for normal
-			end
+                -- Color timer based on time remaining
+                if timeLeft < 5 then
+                    line.timer:SetTextColor(0, 1, 0) -- Green for about to expire
+                else
+                    line.timer:SetTextColor(1, 1, 1) -- White for normal
+                end
 
-			lineIndex = lineIndex + 1
+                lineIndex = lineIndex + 1
+            end
 		end
 	end
+
 
 	-- Hide unused lines
 	for i = lineIndex, maxManaboundPlayers do
@@ -482,111 +526,85 @@ function module:UpdateManaboundStatusFrame()
 	self.manaboundStatusFrame:SetHeight(newHeight)
 end
 
+
 function module:Test()
-	-- Initialize module state
+    -- Ensure the module is set up before running tests
+	self:OnSetup()
+	self:OnEnable() -- Ensure events are registered
 	self:Engage()
 
+    -- Helper to get player names, defaulting if not in raid
+    local function getPlayerName(raidUnit) return UnitName(raidUnit) or raidUnit end
+
+	local p1 = getPlayerName("raid1")
+	local p2 = getPlayerName("raid2")
+	local p3 = getPlayerName("raid3")
+	local p4 = getPlayerName("raid4")
+	local p5 = getPlayerName("raid5")
+	local selfPlayer = UnitName("player") or "Player" -- Use actual player name
+
+	-- Define log messages using helper function for names
+    -- *** Define Dampening log messages using the corrected patterns ***
+	local dampeningApplyLog = "%s is afflicted by Arcane Dampening (1)."
+	local dampeningFadeLog = "Arcane Dampening fades from %s."
+
 	local events = {
-		-- Arcane Overload events
-		{ time = 5, func = function()
-			print("Test: raid1 gets Arcane Overload")
-			local name = UnitName("raid1") or "raid1"
-			module:AfflictionEvent(name .. " is afflicted by Arcane Overload")
-		end },
-		{ time = 15, func = function()
-			print("Test: You get Arcane Overload")
-			module:AfflictionEvent("You are afflicted by Arcane Overload")
-		end },
+		-- Manabound Strikes events (Keep these for context)
+		{ time = 3, func = function() print("Test: "..p1.." gets Manabound Strikes (1)"); module:AfflictionEvent(p1 .. " is afflicted by Manabound Strikes (1)") end },
+		{ time = 8, func = function() print("Test: "..p2.." gets Manabound Strikes (1)"); module:AfflictionEvent(p2 .. " is afflicted by Manabound Strikes (1)") end },
 
-		-- Arcane Prison event
+		-- Arcane Overload (Keep for Skull interaction test)
+		{ time = 5, func = function() print("Test: "..p1.." gets Arcane Overload (Skull)"); module:AfflictionEvent(p1 .. " is afflicted by Arcane Overload") end },
+
+		-- *** Arcane Dampening Test Cases ***
 		{ time = 10, func = function()
-			print("Test: raid3 gets Arcane Prison")
-			local name = UnitName("raid3") or "raid3"
-			module:AfflictionEvent(name .. " is afflicted by Arcane Prison")
-		end },
-
-		-- Arcane Dampening events
+            print("Test: "..p3.." gets Arcane Dampening (Should get marked)")
+            module:AfflictionEvent(string.format(dampeningApplyLog, p3))
+            -- Verification: Check raid target icons after ~1 sec sync delay
+        end },
 		{ time = 12, func = function()
-			print("Test: raid4 gets Arcane Dampening")
-			local name = UnitName("raid4") or "raid4"
-			module:AfflictionEvent(name .. " is afflicted by Arcane Dampening")
-		end },
-		{ time = 16, func = function()
-			print("Test: raid5 gets Arcane Dampening")
-			local name = UnitName("raid5") or "raid5"
-			module:AfflictionEvent(name .. " is afflicted by Arcane Dampening")
-		end },
-		{ time = 22, func = function()
-			print("Test: Arcane Dampening fades from raid5")
-			local name = UnitName("raid5") or "raid5"
-			module:CHAT_MSG_SPELL_AURA_GONE_PARTY("Arcane Dampening fades from " .. name)
-		end },
-		{ time = 25, func = function()
-			print("Test: raid5 gets Arcane Dampening")
-			local name = UnitName("raid5") or "raid5"
-			module:AfflictionEvent(name .. " is afflicted by Arcane Dampening")
-		end },
-		{ time = 28, func = function()
-			print("Test: raid1 dies")
-			local name = UnitName("raid1") or "raid1"
-			module:CHAT_MSG_COMBAT_FRIENDLY_DEATH(name .. " dies")
-		end },
-
-		-- Manabound Strikes events
-		{ time = 3, func = function()
-			print("Test: raid1 gets Manabound Strikes (1)")
-			local name = UnitName("raid1") or "raid1"
-			module:AfflictionEvent(name .. " is afflicted by Manabound Strikes (1)")
-		end },
-		{ time = 8, func = function()
-			print("Test: raid2 gets Manabound Strikes (1)")
-			local name = UnitName("raid2") or "raid2"
-			module:AfflictionEvent(name .. " is afflicted by Manabound Strikes (1)")
-		end },
-		{ time = 13, func = function()
-			print("Test: raid1 gets Manabound Strikes (2)")
-			local name = UnitName("raid1") or "raid1"
-			module:AfflictionEvent(name .. " is afflicted by Manabound Strikes (2)")
-		end },
+            print("Test: "..p4.." gets Arcane Dampening (Should get marked)")
+            module:AfflictionEvent(string.format(dampeningApplyLog, p4))
+        end },
+        { time = 14, func = function()
+            print("Test: You get Arcane Dampening (Should get marked and bar)")
+            module:AfflictionEvent(string.format(dampeningApplyLog, "You")) -- Use "You" for self affliction trigger
+        end },
 		{ time = 18, func = function()
-			print("Test: raid3 gets Manabound Strikes (1)")
-			local name = UnitName("raid3") or "raid3"
-			module:AfflictionEvent(name .. " is afflicted by Manabound Strikes (1)")
-		end },
+            print("Test: Arcane Dampening Fades from "..p3.." (Mark should be removed)")
+            module:AuraGoneEvent(string.format(dampeningFadeLog, p3))
+        end },
 		{ time = 20, func = function()
-			print("Test: raid2 gets Manabound Strikes (2)")
-			local name = UnitName("raid2") or "raid2"
-			module:AfflictionEvent(name .. " is afflicted by Manabound Strikes (2)")
-		end },
+            print("Test: "..p5.." gets Arcane Overload (Skull) - P4 should keep their Dampening mark")
+            module:AfflictionEvent(p5 .. " is afflicted by Arcane Overload")
+        end },
+        { time = 22, func = function()
+            print("Test: Arcane Dampening Fades from You (Mark and bar should be removed)")
+            -- Simulate the AURA_GONE_SELF event *containing* the correct log line text
+            module:AuraGoneEvent(string.format(dampeningFadeLog, selfPlayer))
+        end },
 		{ time = 25, func = function()
-			print("Test: raid3 gets Manabound Strikes (2)")
-			local name = UnitName("raid3") or "raid3"
-			module:AfflictionEvent(name .. " is afflicted by Manabound Strikes (2)")
-		end },
-		{ time = 30, func = function()
-			print("Test: raid1 gets Manabound Strikes (3)")
-			local name = UnitName("raid1") or "raid1"
-			module:AfflictionEvent(name .. " is afflicted by Manabound Strikes (3)")
-		end },
-		{ time = 35, func = function()
-			print("Test: raid2 gets Manabound Strikes (3)")
-			local name = UnitName("raid2") or "raid2"
-			module:AfflictionEvent(name .. " is afflicted by Manabound Strikes (3)")
-		end },
-		{ time = 40, func = function()
-			print("Test: raid3 gets Manabound Strikes (3)")
-			local name = UnitName("raid3") or "raid3"
-			module:AfflictionEvent(name .. " is afflicted by Manabound Strikes (3)")
-		end },
-		{ time = 45, func = function()
-			print("Test: raid6 gets Manabound Strikes (1)")
-			local name = UnitName("raid6") or "raid6"
-			module:AfflictionEvent(name .. " is afflicted by Manabound Strikes (1)")
-		end },
-		{ time = 50, func = function()
-			print("Test: Disengage")
-			module:Disengage()
-		end },
+            print("Test: "..p4.." dies while dampened (Mark should be removed)")
+            module:OnFriendlyDeath(p4 .. " dies.")
+        end },
+        { time = 27, func = function()
+            print("Test: "..p5.." (bomb target) gets dampened (should get NON-SKULL mark)")
+            module:AfflictionEvent(string.format(dampeningApplyLog, p5))
+        end },
+        { time = 29, func = function()
+            print("Test: "..p2.." gets bomb (Skull) - "..p5.." should retain their non-skull mark.")
+            module:AfflictionEvent(p2 .. " is afflicted by Arcane Overload")
+        end },
+        { time = 31, func = function()
+             print("Test: Dampening fades from "..p5);
+             module:AuraGoneEvent(string.format(dampeningFadeLog, p5))
+        end },
+
+		-- Manabound Fade (Keep for context)
+		{ time = 40, func = function() print("Test: Manabound Fades from "..p1); module:AuraGoneEvent("Manabound Strikes fades from " .. p1) end },
+
+		-- Disengage
+		{ time = 45, func = function() print("Test: Disengage"); module:Disengage() end },
 	}
 
 	-- Schedule each event at its absolute time
@@ -594,9 +612,10 @@ function module:Test()
 		self:ScheduleEvent("AnomalusTest" .. i, event.func, event.time)
 	end
 
-	self:Message("Anomalus test started", "Positive")
+	self:Message("Anomalus test started (with Dampening focus)", "Positive")
 	return true
 end
 
+
 -- Test command:
--- /run local m=BigWigs:GetModule("Anomalus"); BigWigs:SetupModule("Anomalus");m:Test();
+-- /run local m=BigWigs:GetModule("Anomalus"); if m then BigWigs:SetupModule("Anomalus"); m:Test() else print("Anomalus module not found") end
