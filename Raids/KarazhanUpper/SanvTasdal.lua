@@ -26,7 +26,7 @@ module.defaultDB = {
 	phaseshifted = true,
 	overflowinghatred = true,
     phasealerts = true,
-    autotarget_riftstalker_melee = (playerClass == "WARRIOR" or playerClass == "ROGUE"),
+    autotarget_riftstalker_melee = false,
     autotarget_riftwalker_caster = false,
     autotarget_netherwalker_caster = false,
 }
