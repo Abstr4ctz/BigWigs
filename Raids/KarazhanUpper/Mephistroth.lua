@@ -29,6 +29,7 @@ module.defaultDB = {
     doomofoutlanddecurse = (playerClass == "MAGE" or playerClass == "DRUID"),
     sleepparalysisdispel = (playerClass == "PALADIN" or playerClass == "PRIEST"),
     sleepparalysismark = true,
+    bosskill = true,
 }
 
 L:RegisterTranslations("enUS", function()
@@ -193,14 +194,12 @@ end
 --------------------------------------------------------------------------------
 
 function module:CHAT_MSG_MONSTER_YELL(msg, sender)
-	if not self.started then return end
-	if sender == self.translatedName and msg == L["victory_trigger"] then
+	if self.started and sender == self.translatedName and msg == L["victory_trigger"] then
 		self:Victory()
 	end
 end
 
 function module:HandleUnitCastEvent(casterGuid, targetGuid, eventType, spellIdCasted, castTimeMs)
-    if not self.started then return end
     if eventType == "START" or eventType == "CHANNEL" then
         local castDurationSec
         if spellIdCasted == spellId.ShacklesOfTheLegionCast then
@@ -223,73 +222,46 @@ function module:HandleUnitCastEvent(casterGuid, targetGuid, eventType, spellIdCa
 end
 
 function module:HandleAfflictionEvent(msg)
-    if not self.started then return end
-
     if string.find(msg, L["trigger_shacklesAppliedYou"]) then
         self:Sync(syncName.shacklesDebuffLanded .. " " .. UnitName("player"))
-        return
-    else
+    elseif string.find(msg, L["trigger_shacklesAppliedOther"]) then
         local _, _, shacklesPlayer = string.find(msg, L["trigger_shacklesAppliedOther"])
-        if shacklesPlayer then
-            self:Sync(syncName.shacklesDebuffLanded .. " " .. shacklesPlayer)
-            return
-        end
-    end
-
-    if string.find(msg, L["trigger_doomAppliedYou"]) then
+        if shacklesPlayer then self:Sync(syncName.shacklesDebuffLanded .. " " .. shacklesPlayer) end
+    elseif string.find(msg, L["trigger_doomAppliedYou"]) then
         self:Sync(syncName.doomApplied .. " " .. UnitName("player"))
-        return
-    else
+    elseif string.find(msg, L["trigger_doomAppliedOther"]) then
         local _, _, doomPlayer = string.find(msg, L["trigger_doomAppliedOther"])
-        if doomPlayer then
-            self:Sync(syncName.doomApplied .. " " .. doomPlayer)
-            return
-        end
-    end
-
-    if string.find(msg, L["trigger_sleepAppliedYou"]) then
+        if doomPlayer then self:Sync(syncName.doomApplied .. " " .. doomPlayer) end
+    elseif string.find(msg, L["trigger_sleepAppliedYou"]) then
         self:Sync(syncName.sleepApplied .. " " .. UnitName("player"))
-        return
-    else
+    elseif string.find(msg, L["trigger_sleepAppliedOther"]) then
         local _, _, sleepPlayer = string.find(msg, L["trigger_sleepAppliedOther"])
-        if sleepPlayer then
-            self:Sync(syncName.sleepApplied .. " " .. sleepPlayer)
-            return
-        end
+        if sleepPlayer then self:Sync(syncName.sleepApplied .. " " .. sleepPlayer) end
     end
 end
 
 function module:HandleAuraGoneEvent(msg)
-    if not self.started then return end
-
     if string.find(msg, L["trigger_shacklesFadedYou"]) then
         self:Sync(syncName.shacklesDebuffRemoved .. " " .. UnitName("player"))
-        return
-    else
+    elseif string.find(msg, L["trigger_shacklesFadedOther"]) then
         local _, _, shacklesPlayer = string.find(msg, L["trigger_shacklesFadedOther"])
-        if shacklesPlayer then
-            self:Sync(syncName.shacklesDebuffRemoved .. " " .. shacklesPlayer)
-            return
+        if shacklesPlayer then self:Sync(syncName.shacklesDebuffRemoved .. " " .. shacklesPlayer) end
+    elseif string.find(msg, L["trigger_doomFaded"]) then
+        local _, _, doomPlayer = string.find(msg, L["trigger_doomFaded"])
+        if doomPlayer then
+            if doomPlayer == "you" then doomPlayer = UnitName("player") end
+            self:Sync(syncName.doomFaded .. " " .. doomPlayer)
         end
-    end
-
-    local _, _, doomPlayer = string.find(msg, L["trigger_doomFaded"])
-    if doomPlayer then
-        if doomPlayer == "you" then doomPlayer = UnitName("player") end
-        self:Sync(syncName.doomFaded .. " " .. doomPlayer)
-        return
-    end
-
-    local _, _, sleepPlayer = string.find(msg, L["trigger_sleepFaded"])
-    if sleepPlayer then
-        if sleepPlayer == "you" then sleepPlayer = UnitName("player") end
-        self:Sync(syncName.sleepFaded .. " " .. sleepPlayer)
-        return
+    elseif string.find(msg, L["trigger_sleepFaded"]) then
+        local _, _, sleepPlayer = string.find(msg, L["trigger_sleepFaded"])
+        if sleepPlayer then
+            if sleepPlayer == "you" then sleepPlayer = UnitName("player") end
+            self:Sync(syncName.sleepFaded .. " " .. sleepPlayer)
+        end
     end
 end
 
 function module:HandleFriendlyDeath(msg)
-    if not self.started then return end
     local _, _, playerName = string.find(msg, "(.+) dies")
     if playerName then
         self:Sync(syncName.shacklesDebuffRemoved .. " " .. playerName)
@@ -299,8 +271,6 @@ function module:HandleFriendlyDeath(msg)
 end
 
 function module:BigWigs_RecvSync(sync, rest, nick)
-	if not self.started then return end
-
     if sync == syncName.shacklesCastDetected then
         if self.db.profile.shacklescasting and rest then
             local castDuration = tonumber(rest) or timer.shacklesDefaultCastFallback
@@ -324,22 +294,14 @@ function module:BigWigs_RecvSync(sync, rest, nick)
             local castDuration = tonumber(rest) or timer.terrorDefaultCastFallback
             self:TriggerTerrorCastWarning(castDuration)
         end
-    elseif sync == syncName.doomApplied then
-        if rest then
-            self:TriggerDoomWarning(rest)
-        end
-    elseif sync == syncName.doomFaded then
-        if rest then
-            self:RemoveDoomDisplay(rest)
-        end
-    elseif sync == syncName.sleepApplied then
-        if rest then
-            self:TriggerSleepParalysisWarning(rest)
-        end
-    elseif sync == syncName.sleepFaded then
-        if rest then
-            self:RemoveSleepParalysisDisplay(rest)
-        end
+    elseif sync == syncName.doomApplied and rest then
+        self:TriggerDoomWarning(rest)
+    elseif sync == syncName.doomFaded and rest then
+        self:RemoveDoomDisplay(rest)
+    elseif sync == syncName.sleepApplied and rest then
+        self:TriggerSleepParalysisWarning(rest)
+    elseif sync == syncName.sleepFaded and rest then
+        self:RemoveSleepParalysisDisplay(rest)
     end
 end
 
@@ -375,22 +337,32 @@ function module:TriggerTerrorCastWarning(castDuration)
 end
 
 function module:TriggerDoomWarning(playerName)
-    if playerName == UnitName("player") then
-        self:Message(L["msg_doomOnYou"], "Important", nil, "Alarm")
+    local isSelf = (playerName == UnitName("player"))
+
+    if isSelf then
+        if self.db.profile.doomofoutlanddecurse then
+            self:Message(L["msg_doomOnYou"], "Important", nil, "Alarm")
+        end
     else
-        if self.db.profile.doomofoutlanddecurse and (playerClass == "MAGE" or playerClass == "DRUID") then
+        if self.db.profile.doomofoutlanddecurse then
             self:Message(string.format(L["msg_doomOnOther"], playerName), "Attention")
         end
     end
 
-    if self.db.profile.doomofoutlanddecurse and (playerClass == "MAGE" or playerClass == "DRUID") then
+    if self.db.profile.doomofoutlanddecurse then
         local barText = L["bar_doomDecursePrefix"] .. playerName
         local spellToCast
         if playerClass == "MAGE" then spellToCast = "Remove Lesser Curse"
         elseif playerClass == "DRUID" then spellToCast = "Remove Curse" end
+        
         if spellToCast then
             self:Bar(barText, timer.doomDuration, icon.doom, true, "Yellow")
-            self:SetCandyBarOnClick("BigWigsBar " .. barText, function(c,m,afflicted) TargetByName(afflicted,true) CastSpellByName(spellToCast) end, playerName)
+            self:SetCandyBarOnClick("BigWigsBar " .. barText, function(_, _, afflictedName)
+                local previousTargetName = UnitName("target")
+                TargetByName(afflictedName, true)
+                CastSpellByName(spellToCast)
+                if previousTargetName then TargetByName(previousTargetName) else ClearTarget() end
+            end, playerName)
         end
     end
 end
@@ -403,6 +375,9 @@ function module:RemoveDoomDisplay(playerName)
 end
 
 function module:TriggerSleepParalysisWarning(playerName)
+    local isSelf = (playerName == UnitName("player"))
+
+    -- Raid Marking
     if self.db.profile.sleepparalysismark then
         local markToUse = self:GetAvailableRaidMark()
         if markToUse then
@@ -410,31 +385,43 @@ function module:TriggerSleepParalysisWarning(playerName)
         end
     end
 
-    if playerName == UnitName("player") then
-        self:Message(L["msg_sleepOnYou"], "Important", nil, "Alarm")
+    -- Messages
+    if isSelf then
+        if self.db.profile.sleepparalysisdispel then
+            self:Message(L["msg_sleepOnYou"], "Important", nil, "Alarm")
+        end
     else
-        if self.db.profile.sleepparalysisdispel and (playerClass == "PALADIN" or playerClass == "PRIEST") then
+        if self.db.profile.sleepparalysisdispel then
             self:Message(string.format(L["msg_sleepOnOther"], playerName), "Attention")
         end
     end
 
-    if self.db.profile.sleepparalysisdispel and (playerClass == "PALADIN" or playerClass == "PRIEST") then
+    -- Clickable Bar for Dispel
+    if self.db.profile.sleepparalysisdispel then
         local barText = L["bar_sleepDispelPrefix"] .. playerName
         local spellToCast
         if playerClass == "PALADIN" then spellToCast = "Cleanse"
         elseif playerClass == "PRIEST" then spellToCast = "Dispel Magic" end
+        
         if spellToCast then
             self:Bar(barText, timer.sleepParalysisDuration, icon.sleepParalysis, true, "Cyan")
-            self:SetCandyBarOnClick("BigWigsBar " .. barText, function(c,m,afflicted) TargetByName(afflicted,true) CastSpellByName(spellToCast) end, playerName)
+            self:SetCandyBarOnClick("BigWigsBar " .. barText, function(_, _, afflictedName)
+                local previousTargetName = UnitName("target")
+                TargetByName(afflictedName, true)
+                CastSpellByName(spellToCast)
+                if previousTargetName then TargetByName(previousTargetName) else ClearTarget() end
+            end, playerName)
         end
     end
 end
 
 function module:RemoveSleepParalysisDisplay(playerName)
+    -- Raid Mark Removal
     if self.db.profile.sleepparalysismark then
         self:RestorePreviousRaidTargetForPlayer(playerName)
     end
 
+    -- Bar Removal
     if self.db.profile.sleepparalysisdispel and (playerClass == "PALADIN" or playerClass == "PRIEST") then
         local barText = L["bar_sleepDispelPrefix"] .. playerName
         self:RemoveBar(barText)
@@ -465,108 +452,90 @@ function module:Test()
     local otherPlayer1 = UnitName("raid1") or "TestRaid1"
     local otherPlayer2 = UnitName("raid2") or "TestRaid2"
     local otherPlayer3 = UnitName("raid3") or "TestRaid3WithMark"
-    local mephistrothGuid = "Creature-0-0-0-0-12345-Mephistroth"
+    local mephistrothGuid = "Creature-0-0-0-0-12345-Mephistroth" -- Example GUID
 
-    DEFAULT_CHAT_FRAME:AddMessage("Mephistroth Test (All Abilities) started", "System")
+    DEFAULT_CHAT_FRAME:AddMessage("Mephistroth Test (Improved Version) started", "System")
 
-    local currentTime = 2
+    local currentTime = 0 -- Start time at 0 for easier relative scheduling
+    local originalPlayerClass = playerClass -- Save original class
+    local originalDoomDecurseProfile = self.db.profile.doomofoutlanddecurse
+    local originalSleepDispelProfile = self.db.profile.sleepparalysisdispel
 
-    -- Cast Sequence
-    self:ScheduleEvent("Test_Cast_Shackles", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim UNIT_CASTEVENT for Shackles.", "System")
+    -- Helper for test scheduling
+    local function ScheduleTestEvent(delay, description, eventFunc)
+        currentTime = currentTime + delay
+        DEFAULT_CHAT_FRAME:AddMessage(string.format("TEST (%.1fs): %s", currentTime, description), "System")
+        self:ScheduleEvent("MephTestEvent_" .. currentTime, eventFunc, currentTime)
+    end
+
+    ScheduleTestEvent(2, "Sim UNIT_CASTEVENT for Shackles.", function()
         module:HandleUnitCastEvent(mephistrothGuid, nil, "START", spellId.ShacklesOfTheLegionCast, 2500)
-    end, currentTime); currentTime = currentTime + 3
-
-    self:ScheduleEvent("Test_Cast_Shards", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim UNIT_CASTEVENT for Shards.", "System")
+    end)
+    ScheduleTestEvent(3, "Sim UNIT_CASTEVENT for Shards.", function()
         module:HandleUnitCastEvent(mephistrothGuid, nil, "START", spellId.ShardsOfHellfury, 3000)
-    end, currentTime); currentTime = currentTime + 4
-
-    self:ScheduleEvent("Test_Cast_Terror", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim UNIT_CASTEVENT for Terror.", "System")
+    end)
+    ScheduleTestEvent(4, "Sim UNIT_CASTEVENT for Terror.", function()
         module:HandleUnitCastEvent(mephistrothGuid, nil, "START", spellId.NathrezimTerror, 2500)
-    end, currentTime); currentTime = currentTime + 3
+    end)
 
-    -- Shackles Debuff Cycle on Self
-    self:ScheduleEvent("Test_Shackles_Self_Debuff", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim Shackles on YOU.", "System")
-        module:HandleAfflictionEvent(L["trigger_shacklesAppliedYou"]) -- This trigger is a fixed string for "self"
-    end, currentTime);
-    self:ScheduleEvent("Test_Shackles_Self_Fade", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim Shackles FADE for YOU.", "System")
-        module:HandleAuraGoneEvent(L["trigger_shacklesFadedYou"]) -- This trigger is also a fixed string for "self"
-    end, currentTime + timer.shacklesDebuffDuration + 0.5); currentTime = currentTime + timer.shacklesDebuffDuration + 2
+    ScheduleTestEvent(3, "Sim Shackles on YOU.", function()
+        module:HandleAfflictionEvent(L["trigger_shacklesAppliedYou"])
+    end)
+    ScheduleTestEvent(timer.shacklesDebuffDuration + 0.5, "Sim Shackles FADE for YOU.", function()
+        module:HandleAuraGoneEvent(L["trigger_shacklesFadedYou"])
+    end)
 
-
-    -- Doom of Outland Cycle
     local afflictedByDoom = otherPlayer1
-    self:ScheduleEvent("Test_Doom_Other_Applied", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim Doom on " .. afflictedByDoom .. ".", "System")
-        -- L["trigger_doomAppliedOther"] = "(.+) is afflicted by Doom of Outland %(%d+%)%."
-        -- We need to construct a string that matches this pattern.
-        local log_msg = string.format("%s is afflicted by Doom of Outland (1).", afflictedByDoom)
-        module:HandleAfflictionEvent(log_msg)
-    end, currentTime)
-
-    self:ScheduleEvent("Test_Doom_Other_ClickBar_Info", function()
-        if self.db.profile.doomofoutlanddecurse and (playerClass == "MAGE" or playerClass == "DRUID") then
+    ScheduleTestEvent(2, "Sim Doom on " .. afflictedByDoom .. ".", function()
+        playerClass = "MAGE" -- Simulate being a Mage for this part
+        self.db.profile.doomofoutlanddecurse = true -- Ensure option is on
+        module:HandleAfflictionEvent(string.format("%s is afflicted by Doom of Outland (1).", afflictedByDoom))
+        if self.db.profile.doomofoutlanddecurse then
             DEFAULT_CHAT_FRAME:AddMessage("TEST INFO: If Mage/Druid, try clicking 'Decurse Doom: "..afflictedByDoom.."' bar.", "System")
         end
-    end, currentTime + 1)
+    end)
+    ScheduleTestEvent(timer.doomDuration + 0.5, "Sim Doom FADE for " .. afflictedByDoom .. ".", function()
+        module:HandleAuraGoneEvent(string.format("Doom of Outland fades from %s.", afflictedByDoom))
+        playerClass = originalPlayerClass -- Restore class
+        self.db.profile.doomofoutlanddecurse = originalDoomDecurseProfile -- Restore profile
+    end)
 
-    self:ScheduleEvent("Test_Doom_Other_Faded", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim Doom FADE for " .. afflictedByDoom .. ".", "System")
-        -- L["trigger_doomFaded"] = "Doom of Outland fades from (.+)%."
-        local log_msg = string.format("Doom of Outland fades from %s.", afflictedByDoom)
-        module:HandleAuraGoneEvent(log_msg)
-    end, currentTime + timer.doomDuration + 0.5); currentTime = currentTime + timer.doomDuration + 2
-
-
-    -- Sleep Paralysis with Marking on otherPlayer3
-    self:ScheduleEvent("Test_Sleep_Other_Applied_Mark", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim Sleep Paralysis on " .. otherPlayer3 .. " (should get raid mark).", "System")
-        -- L["trigger_sleepAppliedOther"] = "(.+) is afflicted by Sleep Paralysis %(%d+%)%."
-        local log_msg = string.format("%s is afflicted by Sleep Paralysis (1).", otherPlayer3)
-        module:HandleAfflictionEvent(log_msg)
-    end, currentTime)
-
-    self:ScheduleEvent("Test_Sleep_Other_ClickBar_Info", function()
-         if self.db.profile.sleepparalysisdispel and (playerClass == "PALADIN" or playerClass == "PRIEST") then
+    ScheduleTestEvent(2, "Sim Sleep Paralysis on " .. otherPlayer3 .. " (should get raid mark).", function()
+        playerClass = "PRIEST" -- Simulate being a Priest
+        self.db.profile.sleepparalysisdispel = true -- Ensure option is on
+        self.db.profile.sleepparalysismark = true
+        module:HandleAfflictionEvent(string.format("%s is afflicted by Sleep Paralysis (1).", otherPlayer3))
+         if self.db.profile.sleepparalysisdispel then
             DEFAULT_CHAT_FRAME:AddMessage("TEST INFO: If Paladin/Priest, try clicking 'Dispel Sleep: "..otherPlayer3.."' bar.", "System")
         end
-    end, currentTime + 1)
+    end)
+    ScheduleTestEvent(timer.sleepParalysisDuration + 0.5, "Sim Sleep Paralysis FADE for " .. otherPlayer3 .. " (mark should be removed).", function()
+        module:HandleAuraGoneEvent(string.format("Sleep Paralysis fades from %s.", otherPlayer3))
+        playerClass = originalPlayerClass
+        self.db.profile.sleepparalysisdispel = originalSleepDispelProfile
+    end)
 
-    self:ScheduleEvent("Test_Sleep_Other_Faded_Mark", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim Sleep Paralysis FADE for " .. otherPlayer3 .. " (mark should be removed).", "System")
-        -- L["trigger_sleepFaded"] = "Sleep Paralysis fades from (.+)%."
-        local log_msg = string.format("Sleep Paralysis fades from %s.", otherPlayer3)
-        module:HandleAuraGoneEvent(log_msg)
-    end, currentTime + timer.sleepParalysisDuration + 0.5); currentTime = currentTime + timer.sleepParalysisDuration + 2
-
-
-    -- Player Death Test
-    self:ScheduleEvent("Test_PlayerDeath_All_Debuffs", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim Doom on " .. otherPlayer2 .. ".", "System")
-        local doom_log_msg = string.format("%s is afflicted by Doom of Outland (1).", otherPlayer2)
-        module:HandleAfflictionEvent(doom_log_msg)
-
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim Sleep on " .. otherPlayer2 .. ".", "System")
-        local sleep_log_msg = string.format("%s is afflicted by Sleep Paralysis (1).", otherPlayer2)
-        module:HandleAfflictionEvent(sleep_log_msg)
-    end, currentTime)
-
-    self:ScheduleEvent("Test_PlayerDeath_Actual", function()
-        DEFAULT_CHAT_FRAME:AddMessage("TEST: Sim " .. otherPlayer2 .. " DIES (Doom/Sleep bars & marks should be removed).", "System")
+    ScheduleTestEvent(2, "Sim Doom & Sleep on " .. otherPlayer2 .. " before death.", function()
+        self.db.profile.doomofoutlanddecurse = true
+        self.db.profile.sleepparalysisdispel = true
+        self.db.profile.sleepparalysismark = true
+        module:HandleAfflictionEvent(string.format("%s is afflicted by Doom of Outland (1).", otherPlayer2))
+        module:HandleAfflictionEvent(string.format("%s is afflicted by Sleep Paralysis (1).", otherPlayer2))
+    end)
+    ScheduleTestEvent(timer.doomDuration / 2, "Sim " .. otherPlayer2 .. " DIES (Doom/Sleep bars & marks should be removed).", function()
         module:HandleFriendlyDeath(otherPlayer2 .. " dies.")
-    end, currentTime + (timer.doomDuration / 2) ); currentTime = currentTime + (timer.doomDuration / 2) + 2
+        self.db.profile.doomofoutlanddecurse = originalDoomDecurseProfile
+        self.db.profile.sleepparalysisdispel = originalSleepDispelProfile
+    end)
 
-
-	self:ScheduleEvent("Test_Victory", function()
-		DEFAULT_CHAT_FRAME:AddMessage("TEST: Simulating Victory Yell.", "System")
-		self:CHAT_MSG_MONSTER_YELL(L["victory_trigger"], self.translatedName)
-	end, currentTime)
-	self:ScheduleEvent("Test_End", function()
-		DEFAULT_CHAT_FRAME:AddMessage("Mephistroth Test Complete. Check BigWigs and chat.", "System")
-	end, currentTime + 2)
+	ScheduleTestEvent(2, "Simulating Victory Yell.", function()
+		module:CHAT_MSG_MONSTER_YELL(L["victory_trigger"], self.translatedName)
+	end)
+	ScheduleTestEvent(2, "Mephistroth Test Complete. Check BigWigs and chat.", function()
+        -- Restore original class just in case any test part failed to do so
+        playerClass = originalPlayerClass
+        self.db.profile.doomofoutlanddecurse = originalDoomDecurseProfile
+        self.db.profile.sleepparalysisdispel = originalSleepDispelProfile
+    end)
 	return true
 end
