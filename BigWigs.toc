@@ -235,6 +235,7 @@ Raids\KarazhanUpper\ChessFight.lua
 Raids\KarazhanUpper\SanvTasdal.lua
 Raids\KarazhanUpper\Kruul.lua
 Raids\KarazhanUpper\Mephistroth.lua
+Raids\KarazhanUpper\Rupturan.lua
 Raids\KarazhanUpper\KaraTrash.lua
 
 Battlegrounds\AlteracValley.lua
